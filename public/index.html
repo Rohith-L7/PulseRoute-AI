@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseRoute AI | AI-Based Ambulance Route Intelligence Platform</title>
+  <meta name="description" content="Dynamic emergency vehicle navigation and route intelligence platform using traffic, road closures, and explainable AI scoring for emergency medical dispatch.">
+  
+  <!-- Modern Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  
+  <!-- Custom Design System -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Top Dispatcher HUD Header -->
+  <header class="header-hud">
+    <div class="brand-section">
+      <div class="pulse-badge">
+        <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+      </div>
+      <div class="brand-title">
+        <h1>PulseRoute <span class="badge-ai">AI ENGINE v2.4</span></h1>
+        <span class="tagline">Dynamic Emergency Navigation & Decision Support</span>
+      </div>
+    </div>
+
+    <!-- Live Telemetry Status Pills -->
+    <div class="system-status-pills">
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        <span>GRAPH: <strong>ONLINE (18 NODES)</strong></span>
+      </div>
+      <div class="status-pill">
+        <span style="color: var(--accent-cyan);">⚡</span>
+        <span>REROUTE LATENCY: <strong>38ms</strong></span>
+      </div>
+      <div class="status-pill" id="google-status-pill">
+        <span style="color: #38bdf8;">🌐</span>
+        <span id="google-status-text">TRAFFIC FEED: <strong>LOCAL GRAPH (HYBRID)</strong></span>
+      </div>
+      <div class="status-pill">
+        <span>🎯 SDG: <strong>3 & 11</strong></span>
+      </div>
+    </div>
+
+    <!-- Actions / Modals -->
+    <div class="header-actions">
+      <button id="btn-toggle-siren" class="btn-header" title="Toggle synthesized vehicle siren">
+        🔇 Siren Muted
+      </button>
+      <button id="btn-open-ml" class="btn-header" style="border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);">
+        🧠 ML Predictor
+      </button>
+      <button id="btn-open-jury" class="btn-header btn-jury">
+        📋 Jury Presentation Mode
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Viewport Layout -->
+  <div class="main-viewport">
+    
+    <!-- LEFT SIDEBAR: Dispatch & Corridor Parameters -->
+    <aside class="dispatch-sidebar">
+      <!-- Section 1: Emergency Scenario Presets -->
+      <div class="panel-section">
+        <div class="section-label">
+          <span>Emergency Request Presets</span>
+          <span style="color: var(--accent-cyan);">Click to Load</span>
+        </div>
+        <div id="preset-selector" class="preset-selector">
+          <!-- Populated by JavaScript -->
+        </div>
+      </div>
+
+      <!-- Section 2: Hospital Selection with ICU Bed Readiness -->
+      <div class="panel-section">
+        <div class="section-label">
+          <span>Destination Hospital Readiness</span>
+          <span style="color: var(--accent-emerald);">Live Bed Telemetry</span>
+        </div>
+        <div id="hospital-list" class="hospital-cards-list">
+          <!-- Populated by JavaScript -->
+        </div>
+      </div>
+
+      <!-- Section 3: Risk Tuning & Lambda Penalty (Section 10 Formula) -->
+      <div class="panel-section">
+        <div class="section-label">
+          <span>AI Cost Optimizer Tuning</span>
+          <span style="font-family: var(--font-mono); color: var(--accent-emerald);">C(R) = T(R) + λ·P(R)</span>
+        </div>
+        <div class="tuning-box">
+          <div class="slider-header">
+            <span>Road Hazard Penalty Factor (<code>λ</code>)</span>
+            <span id="lambda-val" style="font-weight: 700; color: var(--accent-emerald);">1.25</span>
+          </div>
+          <div class="slider-row">
+            <input type="range" id="lambda-slider" min="0.5" max="3.0" step="0.25" value="1.25">
+          </div>
+          <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 6px; line-height: 1.3;">
+            Higher λ heavily penalizes congested segments and construction corridors, forcing the engine to select freer bypasses.
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER VIEWPORT: Leaflet Map & Simulation Stage -->
+    <main class="map-viewport">
+      <!-- Leaflet Map Container -->
+      <div id="map"></div>
+
+      <!-- Floating Top HUD Telemetry -->
+      <div class="map-hud-top">
+        <div class="telemetry-hud-card">
+          <div class="telemetry-item">
+            <span class="label">Dynamic ETA</span>
+            <div id="hud-eta-val" class="val emerald">11.4 <small>min</small></div>
+          </div>
+          <div class="telemetry-item">
+            <span class="label">Distance Remaining</span>
+            <div id="hud-dist-val" class="val">7.0 <small>km</small></div>
+          </div>
+          <div class="telemetry-item">
+            <span class="label">Vehicle Velocity</span>
+            <div id="hud-speed-val" class="val">54 <small>km/h</small></div>
+          </div>
+          <div class="telemetry-item">
+            <span class="label">Signal Preemption</span>
+            <div id="hud-signal-val" class="val" style="color: #10b981; font-size: 0.92rem; font-weight: 700;">
+              AUTO (<15m)
+            </div>
+          </div>
+          <div class="telemetry-item">
+            <span class="label">Mission State</span>
+            <div id="hud-status-val" style="font-size: 0.82rem; font-weight: 700; color: var(--accent-emerald); padding-top: 4px;">
+              DISPATCH READY (STANDBY)
+            </div>
+          </div>
+        </div>
+
+        <div style="background: rgba(18, 24, 38, 0.85); backdrop-filter: blur(10px); padding: 6px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color); font-size: 0.72rem; color: var(--text-muted);">
+          🚦 <em>Signal Preemption: Red lights auto-flip to Green when ambulance is &lt;15m!</em>
+        </div>
+      </div>
+
+      <!-- Floating Bottom Simulation Controls -->
+      <div class="map-simulation-controls">
+        <button id="btn-start-sim" class="btn-sim primary" title="Begin animated ambulance transit">
+          <span>▶</span> Start Dispatch
+        </button>
+        <button id="btn-pause-sim" class="btn-sim" title="Pause simulation">
+          ⏸ Pause
+        </button>
+        <button id="btn-reset-signals" class="btn-sim" title="Reset all traffic signals to RED cycle">
+          <span>🔄</span> Reset Signals
+        </button>
+        <button id="btn-reroute-demo" class="btn-sim danger" title="Inject obstacle mid-journey to demonstrate real-time dynamic rerouting">
+          <span>⚡</span> Live Mid-Transit Reroute Demo
+        </button>
+      </div>
+    </main>
+
+    <!-- RIGHT SIDEBAR: Route Comparison & Explainable AI -->
+    <aside class="analytics-sidebar">
+      
+      <!-- Section 1: Baseline vs AI Impact Evaluation (Section 12 Formula) -->
+      <div class="panel-section">
+        <div class="section-label">
+          <span>Performance & Transit Savings</span>
+          <span style="color: var(--accent-emerald);">Live Metric</span>
+        </div>
+        <div class="impact-card">
+          <div class="impact-header">
+            <span>Simulated Improvement</span>
+            <span class="badge-ai">OPTIMAL</span>
+          </div>
+          <div class="improvement-banner">
+            <span id="stat-percent-saved" class="improvement-val">38.9%</span>
+            <span class="improvement-sub">Transit Time Reduction</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; font-size: 0.74rem;">
+            <div>Baseline ETA: <strong id="stat-baseline-eta" style="color: #f87171;">18.0 min</strong></div>
+            <div>AI Recommended: <strong id="stat-ai-eta" style="color: #34d399;">11.0 min</strong></div>
+          </div>
+          <div class="formula-display" id="formula-calc-text">
+            (18m - 11m) / 18m × 100 = 38.9%
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Route Comparison & Explainable AI Cards (Section 5 & 9) -->
+      <div class="panel-section">
+        <div class="section-label">
+          <span>Candidate Routes Evaluated</span>
+          <span style="color: var(--text-dim);">Dijkstra / Cost Ranking</span>
+        </div>
+        <div id="route-cards" class="route-cards-container">
+          <!-- Populated by JavaScript -->
+        </div>
+      </div>
+
+      <!-- Section 3: Active Roadway Hazards & Incident Management -->
+      <div class="panel-section">
+        <div class="section-label">
+          <span>Active Road Incidents</span>
+          <span style="color: var(--accent-rose);">Dynamic Layer</span>
+        </div>
+        <div id="incidents-list" class="incidents-list">
+          <!-- Populated by JavaScript -->
+        </div>
+      </div>
+
+    </aside>
+
+  </div>
+
+  <!-- Dynamic Reroute Alert Notification Toast -->
+  <div id="reroute-toast" class="reroute-toast">
+    <div class="toast-siren">⚠️</div>
+    <div class="toast-content">
+      <h4>REROUTING ENGAGED</h4>
+      <p>Sudden obstacle detected ahead. Recalculated optimal route saving transit minutes.</p>
+    </div>
+  </div>
+
+  <!-- MODAL 1: Machine Learning Segment Travel-Time Prediction (Section 6 & 8) -->
+  <div id="ml-modal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h2><span>🧠</span> Machine Learning Travel-Time Prediction Model</h2>
+        <button class="modal-close-btn btn-close-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px;">
+          This interactive module demonstrates <strong>Stage 2 (Machine Learning Travel-Time Prediction)</strong> using a Gradient Boosted Decision Tree surrogate model trained on historical segment features to predict dynamic velocity and transit latency.
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <!-- Controls -->
+          <div style="background: rgba(0,0,0,0.3); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+            <h4 style="font-size: 0.84rem; margin-bottom: 12px; color: var(--accent-cyan);">Adjust Input Features</h4>
+            
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.74rem;">
+                <span>Time of Day (Peak Hour)</span>
+                <span id="ml-hour-val" style="color: var(--accent-emerald);">18:00 hrs</span>
+              </div>
+              <input type="range" id="ml-hour" min="0" max="23" value="18" style="width: 100%;">
+            </div>
+
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.74rem;">
+                <span>Weather & Monsoon Precipitation</span>
+                <span id="ml-rain-val" style="color: var(--accent-emerald);">Light Drizzle</span>
+              </div>
+              <input type="range" id="ml-rain" min="1.0" max="2.0" step="0.2" value="1.0" style="width: 100%;">
+            </div>
+
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.74rem;">
+                <span>Road Incident Severity</span>
+                <span id="ml-inc-val" style="color: var(--accent-emerald);">No Incident</span>
+              </div>
+              <input type="range" id="ml-incident" min="0" max="2" step="1" value="0" style="width: 100%;">
+            </div>
+          </div>
+
+          <!-- Predictions & Feature Importance -->
+          <div style="background: rgba(0,0,0,0.3); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+            <h4 style="font-size: 0.84rem; margin-bottom: 12px; color: var(--accent-emerald);">Model Inferences</h4>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
+              <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px;">
+                <div style="font-size: 0.68rem; color: var(--text-dim);">PREDICTED SPEED</div>
+                <div id="ml-pred-speed" style="font-size: 1.25rem; font-weight: 700; color: var(--accent-emerald); font-family: var(--font-mono);">24.8 km/h</div>
+              </div>
+              <div style="background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px;">
+                <div style="font-size: 0.68rem; color: var(--text-dim);">5KM TRANSIT TIME</div>
+                <div id="ml-pred-time" style="font-size: 1.25rem; font-weight: 700; color: var(--accent-cyan); font-family: var(--font-mono);">12.1 min</div>
+              </div>
+            </div>
+
+            <div style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase;">Feature Importance Distribution</div>
+            <div id="ml-feature-bars">
+              <!-- Populated by JavaScript -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: Jury Presentation Mode (All 17 Sections + Live Deck) -->
+  <div id="jury-modal" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h2><span>📋</span> Hackathon Pitch & Jury Defense Mode</h2>
+        <button class="modal-close-btn btn-close-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="slide-deck">
+          <div id="slide-tabs" class="slide-tabs">
+            <!-- Populated by JavaScript -->
+          </div>
+          <div id="slide-view-container" class="slide-view">
+            <!-- Current Slide Content -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS Library -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- App Scripts -->
+  <script src="js/audioAlerts.js"></script>
+  <script src="js/presentationData.js"></script>
+  <script src="js/routingEngine.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
